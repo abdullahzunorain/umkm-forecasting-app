@@ -18,3 +18,6 @@ seaborn==0.13.0
 
 # Utilities
 python-dateutil==2.8.2
+
+# To ensure compatibility with newer pip/Render images
+setuptools>=68.0.0
