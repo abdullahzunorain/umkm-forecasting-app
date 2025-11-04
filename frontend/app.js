@@ -342,19 +342,49 @@ function displayResults(results) {
     document.getElementById('resultsContent').innerHTML = content;
 }
 
-// Display financial analysis
+// Display financial analysis (robust version)
 function displayFinancialAnalysis(results) {
+    if (!results || !results.financial_scenarios) {
+        console.error("Missing financial_scenarios in results:", results);
+        document.getElementById("financialContent").innerHTML =
+            "<p style='color:red;'>Error: Financial data not available.</p>";
+        return;
+    }
+
     const scenarios = results.financial_scenarios;
-    const baseline = scenarios.Baseline.total_profit;
-    const ml = scenarios.ML_Prediction.total_profit;
-    const improvement = ((ml - baseline) / Math.abs(baseline)) * 100;
-    
+
+    // Normalize keys to lowercase with underscores for consistent access
+    const normalizeScenario = (s) => ({
+        total_profit: s["Total Profit"] ?? s.total_profit ?? 0,
+        total_waste: s["Total Waste"] ?? s.total_waste ?? 0,
+        total_stockouts: s["Total Stockouts"] ?? s.total_stockouts ?? 0,
+        service_level: s["Service Level"] ?? s.service_level ?? 0,
+    });
+
+    const baseline = normalizeScenario(scenarios.Baseline || {});
+    const ml = normalizeScenario(scenarios["ML Prediction"] || {});
+
+    const profitImprovement =
+        baseline.total_profit !== 0
+            ? ((ml.total_profit - baseline.total_profit) /
+                Math.abs(baseline.total_profit)) *
+              100
+            : 0;
+
+    const wasteReduction =
+        baseline.total_waste !== 0
+            ? ((baseline.total_waste - ml.total_waste) / baseline.total_waste) *
+              100
+            : 0;
+
     const content = `
         <div class="success-message">
             <strong>💰 Financial Impact Summary</strong><br>
-            Profit improvement: ${improvement > 0 ? '+' : ''}${improvement.toFixed(1)}% over baseline
+            Profit improvement: ${profitImprovement > 0 ? "+" : ""}${profitImprovement.toFixed(
+                1
+            )}% over baseline
         </div>
-        
+
         <h3 style="margin-bottom: 15px;">Scenario Comparison</h3>
         <div class="table-container">
             <table>
@@ -368,50 +398,61 @@ function displayFinancialAnalysis(results) {
                     </tr>
                 </thead>
                 <tbody>
-                    ${Object.entries(scenarios).map(([name, data]) => `
-                        <tr style="${name === 'ML Prediction' ? 'background: #c6f6d5;' : ''}">
-                            <td><strong>${name}</strong> ${name === 'ML Prediction' ? '← Recommended' : ''}</td>
-                            <td>IDR ${data.total_profit.toLocaleString()}</td>
-                            <td>${data.total_waste.toFixed(0)}</td>
-                            <td>${data.total_stockouts.toFixed(0)}</td>
-                            <td>${data.service_level.toFixed(1)}%</td>
-                        </tr>
-                    `).join('')}
+                    ${Object.entries(scenarios)
+                        .map(([name, raw]) => {
+                            const data = normalizeScenario(raw);
+                            return `
+                                <tr style="${name === "ML Prediction" ? "background: #c6f6d5;" : ""}">
+                                    <td><strong>${name}</strong> ${
+                                name === "ML Prediction" ? "← Recommended" : ""
+                            }</td>
+                                    <td>IDR ${data.total_profit.toLocaleString()}</td>
+                                    <td>${data.total_waste.toFixed(0)}</td>
+                                    <td>${data.total_stockouts.toFixed(0)}</td>
+                                    <td>${data.service_level.toFixed(1)}%</td>
+                                </tr>
+                            `;
+                        })
+                        .join("")}
                 </tbody>
             </table>
         </div>
-        
+
         <h3 style="margin-top: 30px; margin-bottom: 15px;">Key Metrics</h3>
         <div class="metric-grid">
             <div class="metric-card" style="background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);">
                 <h4>Profit Improvement</h4>
-                <div class="value">${improvement > 0 ? '+' : ''}${improvement.toFixed(1)}%</div>
+                <div class="value">${profitImprovement > 0 ? "+" : ""}${profitImprovement.toFixed(
+                    1
+                )}%</div>
             </div>
             <div class="metric-card" style="background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);">
                 <h4>Waste Reduction</h4>
-                <div class="value">${(((scenarios.Baseline.total_waste - scenarios.ML_Prediction.total_waste) / scenarios.Baseline.total_waste) * 100).toFixed(1)}%</div>
+                <div class="value">${wasteReduction.toFixed(1)}%</div>
             </div>
             <div class="metric-card" style="background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);">
                 <h4>Service Level</h4>
-                <div class="value">${scenarios.ML_Prediction.service_level.toFixed(1)}%</div>
+                <div class="value">${ml.service_level.toFixed(1)}%</div>
             </div>
             <div class="metric-card" style="background: linear-gradient(135deg, #9b59b6 0%, #8e44ad 100%);">
                 <h4>Additional Profit</h4>
-                <div class="value">IDR ${(ml - baseline).toLocaleString()}</div>
+                <div class="value">IDR ${(ml.total_profit - baseline.total_profit).toLocaleString()}</div>
             </div>
         </div>
-        
+
         <div class="recommendation-box">
             <h4>💡 Financial Insights</h4>
             <ul>
-                <li>Current baseline approach results in profit of IDR ${baseline.toLocaleString()}</li>
-                <li>ML-optimized approach projects profit of IDR ${ml.toLocaleString()}</li>
-                <li>Net improvement of IDR ${(ml - baseline).toLocaleString()} (${improvement.toFixed(1)}%)</li>
-                <li>Waste reduced by ${(((scenarios.Baseline.total_waste - scenarios.ML_Prediction.total_waste) / scenarios.Baseline.total_waste) * 100).toFixed(1)}%</li>
-                <li>Service level maintained at ${scenarios.ML_Prediction.service_level.toFixed(1)}%</li>
+                <li>Current baseline approach results in profit of IDR ${baseline.total_profit.toLocaleString()}</li>
+                <li>ML-optimized approach projects profit of IDR ${ml.total_profit.toLocaleString()}</li>
+                <li>Net improvement of IDR ${(ml.total_profit - baseline.total_profit).toLocaleString()} (${profitImprovement.toFixed(
+                    1
+                )}%)</li>
+                <li>Waste reduced by ${wasteReduction.toFixed(1)}%</li>
+                <li>Service level maintained at ${ml.service_level.toFixed(1)}%</li>
             </ul>
         </div>
-        
+
         <div style="margin-top: 30px; text-align: center; display: flex; gap: 15px; justify-content: center;">
             <button class="btn" onclick="setActiveStep(3); showScreen('results')">
                 ← Back to Results
@@ -421,9 +462,10 @@ function displayFinancialAnalysis(results) {
             </button>
         </div>
     `;
-    
-    document.getElementById('financialContent').innerHTML = content;
+
+    document.getElementById("financialContent").innerHTML = content;
 }
+
 
 // Display recommendations
 async function displayRecommendations(results) {
