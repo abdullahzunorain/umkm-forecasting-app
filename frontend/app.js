@@ -4,7 +4,9 @@
 // loading this script. This keeps the code backwards-compatible with local dev.
 // const API_URL = window.API_URL || 'http://localhost:8000';
 
-const API_BASE_URL = "https://umkm-forecasting-app-production.up.railway.app";
+// const API_BASE_URL = "https://umkm-forecasting-app-production.up.railway.app";
+// top of frontend/app.js
+const API_URL = "https://umkm-forecasting-app-production.up.railway.app";
 
 
 // Global state
