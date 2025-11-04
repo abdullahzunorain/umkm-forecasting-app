@@ -1,16 +1,21 @@
 // API Base URL
-// Behavior:
-// - If you provide a `config.js` that sets `window.API_URL = 'https://...'` and
-//   include it before this script in `index.html`, that value will be used.
-// - Otherwise the code will fall back to the production Railway URL below.
-const API_URL = (typeof window !== 'undefined' && window.API_URL)
-    ? window.API_URL
-    : 'https://umkm-forecasting-app-production.up.railway.app';
+// If you deploy the frontend separately (e.g., GitHub Pages), create a small
+// `config.js` that sets `window.API_URL = 'https://your-backend-url'` before
+// loading this script. This keeps the code backwards-compatible with local dev.
+// const API_URL = window.API_URL || 'http://localhost:8000';
+// const API_BASE_URL = "https://umkm-forecasting-app-production.up.railway.app";
+// top of frontend/app.js
+const API_URL = "https://umkm-forecasting-app-production.up.railway.app";
 
 
- state
-let sessionId = null;
-let uploadedData = null;
+
+// Global state
+// let sessionId = null;
+// let uploadedData = null;# Replace <session_id> and <BACKEND_URL> accordingly
+
+$sessionId = "<session_id>"
+Invoke-RestMethod -Method Post -Uri "https://umkm-forecasting-app-production.up.railway.app/api/train/$sessionId" -TimeoutSec 600
+
 let trainingResults = null;
 
 // DOM Elements
@@ -59,82 +64,41 @@ function showScreen(screenId) {
     }
 }
 
-// File upload handlers with improved mobile support
-uploadArea.addEventListener('click', () => {
-    fileInput.click();
-    uploadArea.classList.add('active');
-    setTimeout(() => uploadArea.classList.remove('active'), 200);
-});
+// File upload handlers
+uploadArea.addEventListener('click', () => fileInput.click());
 
-// Touch events for mobile
-uploadArea.addEventListener('touchstart', (e) => {
-    e.preventDefault();
-    uploadArea.classList.add('active');
-});
-
-uploadArea.addEventListener('touchend', (e) => {
-    e.preventDefault();
-    uploadArea.classList.remove('active');
-    fileInput.click();
-});
-
-// Drag and drop events for desktop
 uploadArea.addEventListener('dragover', (e) => {
     e.preventDefault();
-    e.stopPropagation();
     uploadArea.classList.add('dragover');
 });
 
-uploadArea.addEventListener('dragleave', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
+uploadArea.addEventListener('dragleave', () => {
     uploadArea.classList.remove('dragover');
 });
 
 uploadArea.addEventListener('drop', (e) => {
     e.preventDefault();
-    e.stopPropagation();
     uploadArea.classList.remove('dragover');
     
     const files = e.dataTransfer.files;
     if (files.length > 0) {
-        validateAndUpload(files[0]);
+        handleFileUpload(files[0]);
     }
 });
 
-// File input change handler
 fileInput.addEventListener('change', (e) => {
     if (e.target.files.length > 0) {
-        validateAndUpload(e.target.files[0]);
+        handleFileUpload(e.target.files[0]);
     }
 });
 
-// Validate file before upload
-function validateAndUpload(file) {
-    // Reset previous error states
-    uploadArea.classList.remove('error');
-    
-    // Validate file type
-    if (!file.name.toLowerCase().endsWith('.csv')) {
-        uploadArea.classList.add('error');
-        alert('Please upload a CSV file. Other file types are not supported.');
-        return;
-    }
-
-    // Validate file size (max 10MB)
-    const maxSize = 10 * 1024 * 1024; // 10MB in bytes
-    if (file.size > maxSize) {
-        uploadArea.classList.add('error');
-        alert('File is too large. Please upload a file smaller than 10MB.');
-        return;
-    }
-
-    // If validation passes, proceed with upload
-    handleFileUpload(file);
-}
-
-// Upload file to backend with improved error handling
+// Upload file to backend
 async function handleFileUpload(file) {
+    if (!file.name.endsWith('.csv')) {
+        alert('Please upload a CSV file');
+        return;
+    }
+    
     showScreen('loading');
     document.getElementById('loadingText').textContent = 'Uploading and processing data...';
     setActiveStep(1);
@@ -143,23 +107,13 @@ async function handleFileUpload(file) {
     formData.append('file', file);
     
     try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-        
         const response = await fetch(`${API_URL}/api/upload`, {
             method: 'POST',
-            body: formData,
-            signal: controller.signal,
-            headers: {
-                'Accept': 'application/json'
-            }
+            body: formData
         });
         
-        clearTimeout(timeoutId);
-        
         if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(errorText || `Upload failed with status: ${response.status}`);
+            throw new Error('Upload failed');
         }
         
         uploadedData = await response.json();
