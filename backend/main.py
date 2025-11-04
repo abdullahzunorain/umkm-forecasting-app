@@ -1,32 +1,49 @@
 """
-ENHANCED UMKM STOCK FORECASTING - ANALYSIS SCRIPT
-
-This file replaces the previous FastAPI-based `main.py` with the requested
-standalone analysis script. It performs data loading, feature engineering,
-per-product temporal splitting, model training, evaluation and visualization.
-
-Run from the repository root or the `backend` folder. Ensure `pandas`,
-`numpy`, `matplotlib`, `seaborn`, `scikit-learn` and `xgboost` are installed.
+UMKM Time Series Forecasting API
+FastAPI Backend with Complete ML Pipeline
 """
 
+from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
+import io
+import json
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional
+import warnings
+warnings.filterwarnings('ignore')
+
+# ML Models
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from xgboost import XGBRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, mean_absolute_percentage_error
 from sklearn.preprocessing import LabelEncoder
-import warnings
-warnings.filterwarnings('ignore')
+import joblib
+import base64
+from io import BytesIO
 
-sns.set_style("whitegrid")
-plt.rcParams['figure.figsize'] = (16, 6)
+# Plotting
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import seaborn as sns
 
-print("="*100)
-print(" ENHANCED UMKM DAILY STOCK FORECASTING - COMPREHENSIVE ANALYSIS")
-print("="*100)
+app = FastAPI(title="UMKM Forecasting API", version="1.0.0")
 
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Global storage for session data
+sessions = {}
 
 # =====================================================================
 # UTILITY FUNCTIONS
