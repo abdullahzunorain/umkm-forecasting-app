@@ -26,18 +26,15 @@ const API_URL = (() => {
     }
 })();
 
+// API Base URL
+// const API_URL = 'http://localhost:8000';
 
-// ===== Global state =====
+// Global state
 let sessionId = null;
 let uploadedData = null;
 let trainingResults = null;
 
-// ===== Safe console =====
-const log = (...args) => {
-    if (typeof console !== 'undefined' && console.log) console.log('[UMKM App]', ...args);
-};
-
-// ===== DOM Elements =====
+// DOM Elements
 const fileInput = document.getElementById('fileInput');
 const uploadArea = document.getElementById('uploadArea');
 const trainBtn = document.getElementById('trainBtn');
@@ -49,7 +46,6 @@ const loadingScreen = document.getElementById('loadingScreen');
 const resultsScreen = document.getElementById('resultsScreen');
 const financialScreen = document.getElementById('financialScreen');
 const recommendationsScreen = document.getElementById('recommendationsScreen');
-
 
 // Step management
 function setActiveStep(stepNumber) {
@@ -84,103 +80,74 @@ function showScreen(screenId) {
     }
 }
 
-// ===== File Upload (single, consolidated setup) =====
-if (uploadArea && fileInput) {
-    // Click to open native file picker
-    uploadArea.addEventListener('click', () => {
-        fileInput.click();
-        uploadArea.classList.add('active');
-        setTimeout(() => uploadArea.classList.remove('active'), 200);
-    });
+// File upload handlers
+uploadArea.addEventListener('click', () => fileInput.click());
 
-    // Drag & drop handlers
-    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(event => {
-        uploadArea.addEventListener(event, e => {
-            e.preventDefault();
-            e.stopPropagation();
+uploadArea.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    uploadArea.classList.add('dragover');
+});
 
-            if (event === 'dragover') uploadArea.classList.add('dragover');
-            if (event === 'dragleave' || event === 'drop') uploadArea.classList.remove('dragover');
+uploadArea.addEventListener('dragleave', () => {
+    uploadArea.classList.remove('dragover');
+});
 
-            if (event === 'drop') {
-                const file = e.dataTransfer?.files?.[0];
-                if (file) handleFileUpload(file);
-            }
-        });
-    });
-
-    // Handle file input change (covers mobile and desktop file pick)
-    ['change', 'input'].forEach(event => {
-        fileInput.addEventListener(event, e => {
-            const file = e.target?.files?.[0];
-            if (file) handleFileUpload(file);
-        });
-    });
-}
-
-// Single robust upload handler
-async function handleFileUpload(file) {
-    if (!file || !file.name) {
-        alert('Invalid file selected');
-        return;
+uploadArea.addEventListener('drop', (e) => {
+    e.preventDefault();
+    uploadArea.classList.remove('dragover');
+    
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+        handleFileUpload(files[0]);
     }
+});
 
-    if (!file.name.toLowerCase().endsWith('.csv')) {
+fileInput.addEventListener('change', (e) => {
+    if (e.target.files.length > 0) {
+        handleFileUpload(e.target.files[0]);
+    }
+});
+
+// Upload file to backend
+async function handleFileUpload(file) {
+    if (!file.name.endsWith('.csv')) {
         alert('Please upload a CSV file');
         return;
     }
-
+    
     showScreen('loading');
-    const loadingText = document.getElementById('loadingText');
-    if (loadingText) loadingText.textContent = 'Uploading and processing data...';
+    document.getElementById('loadingText').textContent = 'Uploading and processing data...';
     setActiveStep(1);
-
+    
     const formData = new FormData();
     formData.append('file', file);
-
+    
     try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 60000);
-
-        log('Uploading to:', API_URL);
         const response = await fetch(`${API_URL}/api/upload`, {
             method: 'POST',
-            body: formData,
-            signal: controller.signal,
-            headers: { 'Accept': 'application/json' }
+            body: formData
         });
-
-        clearTimeout(timeoutId);
-
+        
         if (!response.ok) {
-            let errorMessage = `Upload failed (${response.status})`;
-            try {
-                const errorBody = await response.text();
-                if (errorBody) errorMessage = errorBody;
-                else if (response.status === 404) errorMessage = 'API endpoint not found. Please check the backend server is running.';
-                else if (response.status === 413) errorMessage = 'File too large. Please try a smaller CSV file.';
-                else if (response.status >= 500) errorMessage = 'Server error. Please try again later.';
-            } catch (e) {
-                // ignore
-            }
-            throw new Error(errorMessage);
+            throw new Error('Upload failed');
         }
-
+        
         uploadedData = await response.json();
         sessionId = uploadedData.session_id;
-
+        
         displayDatasetInfo(uploadedData);
-        if (trainBtn) trainBtn.disabled = false;
+        trainBtn.disabled = false;
         showScreen('welcome');
-
+        
+        // Show success message
         const successMsg = document.createElement('div');
         successMsg.className = 'success-message';
         successMsg.innerHTML = `
             <strong>✓ File uploaded successfully!</strong><br>
-            Processed ${uploadedData.total_records?.toLocaleString() || 0} records from ${uploadedData.date_range?.start || '-'} to ${uploadedData.date_range?.end || '-'}
+            Processed ${uploadedData.total_records.toLocaleString()} records from ${uploadedData.date_range.start} to ${uploadedData.date_range.end}
         `;
-        if (welcomeScreen) welcomeScreen.insertBefore(successMsg, welcomeScreen.firstChild);
-
+        welcomeScreen.insertBefore(successMsg, welcomeScreen.firstChild);
+        
     } catch (error) {
         showScreen('welcome');
         alert('Error uploading file: ' + error.message);
@@ -217,7 +184,7 @@ function displayDatasetInfo(data) {
     document.getElementById('datasetStats').innerHTML = stats;
 }
 
-// Train models with timeout and error handling
+// Train models
 trainBtn.addEventListener('click', async () => {
     if (!sessionId) {
         alert('Please upload a file first');
@@ -225,43 +192,16 @@ trainBtn.addEventListener('click', async () => {
     }
     
     showScreen('loading');
-    const loadingText = document.getElementById('loadingText');
-    if (loadingText) loadingText.textContent = 'Training models... This may take a few minutes';
+    document.getElementById('loadingText').textContent = 'Training models... This may take a few minutes';
     setActiveStep(2);
     
     try {
-        // Setup request with longer timeout for training
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 min timeout
-        
-        log('Training request for session:', sessionId);
         const response = await fetch(`${API_URL}/api/train/${sessionId}`, {
-            method: 'POST',
-            signal: controller.signal,
-            headers: {
-                'Accept': 'application/json'
-            }
+            method: 'POST'
         });
         
-        clearTimeout(timeoutId);
-        
         if (!response.ok) {
-            let errorMessage = `Training failed (${response.status})`;
-            
-            try {
-                const errorBody = await response.text();
-                if (errorBody) {
-                    errorMessage = errorBody;
-                } else if (response.status === 404) {
-                    errorMessage = 'Session not found. Please try uploading the file again.';
-                } else if (response.status >= 500) {
-                    errorMessage = 'Server error during training. Please try again later.';
-                }
-            } catch (e) {
-                // Ignore error reading body
-            }
-            
-            throw new Error(errorMessage);
+            throw new Error('Training failed');
         }
         
         trainingResults = await response.json();
