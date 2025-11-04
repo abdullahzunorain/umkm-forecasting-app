@@ -1,49 +1,389 @@
 """
-UMKM Time Series Forecasting API
-FastAPI Backend with Complete ML Pipeline
+ENHANCED UMKM DAILY STOCK FORECASTING - ANALYSIS SCRIPT
+
+This standalone script performs data loading, feature engineering,
+per-product temporal splitting, model training, evaluation and
+visualization. It writes outputs to `backend/output/`.
+
+Usage:
+    python backend/main.py
+
+It will attempt to read the CSV from the repository `data/` folder. It
+looks for `translated_catatan_umkm.csv` first, then `catatan_umkm.csv`.
 """
 
-from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
+import os
+import json
+import warnings
+from datetime import datetime
+
 import pandas as pd
 import numpy as np
-import io
-import json
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional
-import warnings
-warnings.filterwarnings('ignore')
+import matplotlib.pyplot as plt
+import seaborn as sns
 
-# ML Models
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from xgboost import XGBRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, mean_absolute_percentage_error
 from sklearn.preprocessing import LabelEncoder
-import joblib
-import base64
-from io import BytesIO
 
-# Plotting
-import matplotlib
-matplotlib.use('Agg')
+warnings.filterwarnings('ignore')
+sns.set_style("whitegrid")
+plt.rcParams['figure.figsize'] = (14, 6)
+
+
+def add_calendar_features(df):
+    df = df.copy()
+    df['year'] = df['date'].dt.year
+    df['month'] = df['date'].dt.month
+    df['day'] = df['date'].dt.day
+    df['dayofweek'] = df['date'].dt.dayofweek
+    df['dayofyear'] = df['date'].dt.dayofyear
+    df['weekofyear'] = df['date'].dt.isocalendar().week
+    df['quarter'] = df['date'].dt.quarter
+    df['is_weekend'] = (df['dayofweek'] >= 5).astype(int)
+    df['is_month_start'] = df['date'].dt.is_month_start.astype(int)
+    df['is_month_end'] = df['date'].dt.is_month_end.astype(int)
+
+    # Example religious/holiday ranges (extend if needed)
+    ramadan_periods = [
+        ('2021-04-13', '2021-05-12'), ('2022-04-03', '2022-05-01'),
+        ('2023-03-23', '2023-04-21'), ('2024-03-12', '2024-04-09')
+    ]
+    df['is_ramadan'] = 0
+    for start, end in ramadan_periods:
+        mask = (df['date'] >= start) & (df['date'] <= end)
+        df.loc[mask, 'is_ramadan'] = 1
+
+    eid_dates = ['2021-05-13', '2022-05-02', '2023-04-22', '2024-04-10']
+    df['is_eid'] = df['date'].dt.strftime('%Y-%m-%d').isin(eid_dates).astype(int)
+
+    df['days_to_eid'] = 365
+    for eid_str in eid_dates:
+        eid_date = pd.to_datetime(eid_str)
+        days_diff = (eid_date - df['date']).dt.days
+        df['days_to_eid'] = np.where((days_diff >= 0) & (days_diff < df['days_to_eid']), days_diff, df['days_to_eid'])
+    df['near_eid'] = (df['days_to_eid'] <= 7).astype(int)
+
+    # National holidays
+    df['is_holiday'] = (
+        ((df['month'] == 1) & (df['day'] == 1)) |
+        ((df['month'] == 8) & (df['day'] == 17)) |
+        ((df['month'] == 12) & (df['day'] == 25))
+    ).astype(int)
+
+    # Cyclical encodings
+    df['month_sin'] = np.sin(2 * np.pi * df['month'] / 12)
+    df['month_cos'] = np.cos(2 * np.pi * df['month'] / 12)
+    df['dow_sin'] = np.sin(2 * np.pi * df['dayofweek'] / 7)
+    df['dow_cos'] = np.cos(2 * np.pi * df['dayofweek'] / 7)
+
+    return df
+
+
+def split_product_timeseries(product_df, train_ratio=0.70, val_ratio=0.15):
+    product_df = product_df.sort_values('date').reset_index(drop=True)
+    n = len(product_df)
+    train_end = int(n * train_ratio)
+    val_end = int(n * (train_ratio + val_ratio))
+    train = product_df.iloc[:train_end].copy()
+    val = product_df.iloc[train_end:val_end].copy()
+    test = product_df.iloc[val_end:].copy()
+    return train, val, test
+
+
+def create_lag_features_per_product(train_df, val_df, test_df):
+    train_with_lags, val_with_lags, test_with_lags = [], [], []
+    for product in train_df['product_name'].unique():
+        train_p = train_df[train_df['product_name'] == product].copy().sort_values('date')
+        val_p = val_df[val_df['product_name'] == product].copy().sort_values('date')
+        test_p = test_df[test_df['product_name'] == product].copy().sort_values('date')
+
+        def add_lags(df, target='sold'):
+            df = df.copy()
+            series = df[target]
+            for lag in [1, 2, 3, 7, 14, 21, 28]:
+                df[f'{target}_lag{lag}'] = series.shift(lag)
+            for window in [7, 14, 28]:
+                shifted = series.shift(1)
+                df[f'{target}_ma{window}'] = shifted.rolling(window, min_periods=1).mean()
+                df[f'{target}_std{window}'] = shifted.rolling(window, min_periods=1).std()
+                df[f'{target}_max{window}'] = shifted.rolling(window, min_periods=1).max()
+                df[f'{target}_min{window}'] = shifted.rolling(window, min_periods=1).min()
+            df[f'{target}_ema7'] = series.shift(1).ewm(span=7, adjust=False).mean()
+            df[f'{target}_ema14'] = series.shift(1).ewm(span=14, adjust=False).mean()
+            df[f'{target}_trend'] = series.diff(7)
+            return df
+
+        train_p = add_lags(train_p)
+        train_val = pd.concat([train_p, val_p], ignore_index=True).sort_values('date')
+        train_val = add_lags(train_val)
+        val_p = train_val.iloc[len(train_p):].copy()
+        all_data = pd.concat([train_p, val_p, test_p], ignore_index=True).sort_values('date')
+        all_data = add_lags(all_data)
+        test_p = all_data.iloc[len(train_p) + len(val_p):].copy()
+
+        train_with_lags.append(train_p)
+        val_with_lags.append(val_p)
+        test_with_lags.append(test_p)
+
+    return pd.concat(train_with_lags), pd.concat(val_with_lags), pd.concat(test_with_lags)
+
+
+def calculate_financial_scenario(test_df, production_strategy, strategy_name):
+    tc = test_df.copy()
+    if strategy_name == "Historical Average":
+        hist_avg = tc.groupby('product_name')['sold'].transform('mean')
+        tc['produced_sim'] = np.ceil(hist_avg)
+    elif strategy_name == "Perfect":
+        tc['produced_sim'] = tc['sold']
+    else:
+        tc['produced_sim'] = production_strategy
+
+    tc['actual_demand'] = tc['sold']
+    tc['sold_actual'] = np.minimum(tc['produced_sim'], tc['actual_demand'])
+    tc['waste'] = np.maximum(tc['produced_sim'] - tc['actual_demand'], 0)
+    tc['stockout'] = np.maximum(tc['actual_demand'] - tc['produced_sim'], 0)
+
+    tc['revenue'] = tc['sold_actual'] * tc['price']
+    tc['production_cost'] = tc['produced_sim'] * tc['unit_cost']
+    tc['waste_cost'] = tc['waste'] * tc['unit_cost']
+    tc['opportunity_cost'] = tc['stockout'] * (tc['price'] - tc['unit_cost'])
+    tc['total_cost'] = tc['production_cost'] + tc['opportunity_cost']
+    tc['profit'] = tc['revenue'] - tc['total_cost']
+
+    return {
+        'total_revenue': float(tc['revenue'].sum()),
+        'production_cost': float(tc['production_cost'].sum()),
+        'waste_cost': float(tc['waste_cost'].sum()),
+        'opportunity_cost': float(tc['opportunity_cost'].sum()),
+        'total_profit': float(tc['profit'].sum()),
+        'total_waste': float(tc['waste'].sum()),
+        'total_stockouts': float(tc['stockout'].sum()),
+        'service_level': float((1 - tc['stockout'].sum() / tc['actual_demand'].sum()) * 100) if tc['actual_demand'].sum() > 0 else 100
+    }
+
+
+def ensure_output_dir(path: str):
+    os.makedirs(path, exist_ok=True)
+
+
+def load_data():
+    candidates = [
+        os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'translated_catatan_umkm.csv'),
+        os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'catatan_umkm.csv'),
+        os.path.join(os.path.dirname(__file__), '..', 'data', 'translated_catatan_umkm.csv')
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            print(f"Loading data from: {p}")
+            df = pd.read_csv(p)
+            return df
+    raise FileNotFoundError("No data file found. Put your CSV into the `data/` folder named `translated_catatan_umkm.csv` or `catatan_umkm.csv`.")
+
+
+def prepare_and_train(df, out_dir='backend/output'):
+    ensure_output_dir(out_dir)
+
+    # Basic parsing and aggregation
+    df = df.copy()
+    if 'date' not in df.columns:
+        raise ValueError('Input CSV must contain a `date` column')
+    df['date'] = pd.to_datetime(df['date'], errors='coerce', dayfirst=True)
+    df = df.dropna(subset=['date']).sort_values('date').reset_index(drop=True)
+
+    # Ensure numeric fields exist
+    for col in ['produced', 'sold', 'price', 'unit_cost', 'revenue', 'expense']:
+        if col not in df.columns:
+            df[col] = 0
+    # Aggregate daily per product
+    daily = df.groupby(['date', 'product_name'], as_index=False).agg({
+        'produced': 'sum', 'sold': 'sum', 'price': 'mean', 'unit_cost': 'mean', 'revenue': 'sum', 'expense': 'sum'
+    })
+
+    # Session-like container for results
+    session = {'uploaded_at': datetime.now().isoformat(), 'products': {}}
+
+    # Add calendar features
+    daily = add_calendar_features(daily)
+    daily = daily.fillna(0)
+
+    # We'll collect global metrics
+    overall_results = {}
+
+    products = sorted(daily['product_name'].unique())
+    print(f"Found {len(products)} products: {products}")
+
+    for product in products:
+        product_df = daily[daily['product_name'] == product].copy()
+        if len(product_df) < 30:
+            print(f"Skipping product '{product}' - not enough data ({len(product_df)} rows)")
+            continue
+
+        train_p, val_p, test_p = split_product_timeseries(product_df)
+        # simple label encode product (single value per product)
+        le = LabelEncoder()
+        le.fit([product])
+        train_p['product_encoded'] = le.transform(train_p['product_name'])
+        val_p['product_encoded'] = le.transform(val_p['product_name'])
+        test_p['product_encoded'] = le.transform(test_p['product_name'])
+
+        train_l, val_l, test_l = create_lag_features_per_product(train_p, val_p, test_p)
+
+        feature_cols = [
+            'year','month','dayofweek','weekofyear','quarter','dayofyear',
+            'is_weekend','is_month_start','is_month_end',
+            'is_ramadan','is_eid','near_eid','is_holiday','days_to_eid',
+            'product_encoded','price','unit_cost',
+            'month_sin','month_cos','dow_sin','dow_cos',
+            'sold_lag1','sold_lag2','sold_lag3','sold_lag7','sold_lag14','sold_lag21','sold_lag28',
+            'sold_ma7','sold_ma14','sold_ma28','sold_std7','sold_std14','sold_std28',
+            'sold_max7','sold_max14','sold_max28','sold_min7','sold_min14','sold_min28',
+            'sold_ema7','sold_ema14','sold_trend'
+        ]
+
+        # Impute with medians
+        all_train = train_l.copy()
+        global_stats = {c: (all_train[c].median() if c in all_train.columns else 0) for c in feature_cols}
+
+        def impute_df(df_split):
+            df_split = df_split.copy()
+            for col in feature_cols:
+                if col in df_split.columns:
+                    df_split[col] = df_split[col].fillna(global_stats.get(col, 0))
+            return df_split
+
+        train_l = impute_df(train_l).dropna(subset=['sold'])
+        val_l = impute_df(val_l).dropna(subset=['sold'])
+        test_l = impute_df(test_l).dropna(subset=['sold'])
+
+        if len(train_l) < 5 or len(test_l) < 1:
+            print(f"Not enough training/test rows for {product} after lag creation; skipping.")
+            continue
+
+        X_train, y_train = train_l[feature_cols], train_l['sold']
+        X_test, y_test = test_l[feature_cols], test_l['sold']
+
+        models = {
+            'XGBoost': XGBRegressor(n_estimators=100, max_depth=6, learning_rate=0.05, random_state=42, n_jobs=1, verbosity=0),
+            'RandomForest': RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=1),
+            'GradientBoosting': GradientBoostingRegressor(n_estimators=100, random_state=42)
+        }
+
+        product_results = {}
+        fitted_models = {}
+        for name, model in models.items():
+            try:
+                model.fit(X_train, y_train)
+                pred = np.maximum(model.predict(X_test), 0)
+                product_results[name] = {
+                    'mae': float(mean_absolute_error(y_test, pred)),
+                    'rmse': float(np.sqrt(mean_squared_error(y_test, pred))),
+                    'r2': float(r2_score(y_test, pred)),
+                    'mape': float(mean_absolute_percentage_error(y_test, pred) * 100)
+                }
+                fitted_models[name] = model
+            except Exception as e:
+                print(f"Model {name} failed for product {product}: {e}")
+
+        if not product_results:
+            continue
+
+        best_name = min(product_results.items(), key=lambda x: x[1]['mae'])[0]
+        best_model = fitted_models[best_name]
+        pred_best = np.maximum(best_model.predict(X_test), 0)
+
+        test_l = test_l.copy()
+        test_l['predicted'] = pred_best
+        test_l['error'] = test_l['sold'] - test_l['predicted']
+        test_l['abs_error'] = np.abs(test_l['error'])
+
+        scenarios = {}
+        scenarios['Baseline'] = calculate_financial_scenario(test_l, None, 'Historical Average')
+        scenarios['ML'] = calculate_financial_scenario(test_l, np.ceil(pred_best), 'ML')
+        scenarios['Perfect'] = calculate_financial_scenario(test_l, test_l['sold'], 'Perfect')
+
+        # Save product results
+        product_dir = os.path.join(out_dir, 'products')
+        ensure_output_dir(product_dir)
+        ts_file = os.path.join(product_dir, f"timeseries_{product.replace(' ', '_')}.csv")
+        test_l[['date','sold','predicted','price','unit_cost']].to_csv(ts_file, index=False)
+
+        # Plot actual vs predicted
+        plt.figure()
+        plt.plot(test_l['date'], test_l['sold'], label='actual')
+        plt.plot(test_l['date'], test_l['predicted'], label='predicted')
+        plt.title(f"{product} - Actual vs Predicted")
+        plt.legend()
+        plt.tight_layout()
+        plot_file = os.path.join(product_dir, f"pred_{product.replace(' ', '_')}.png")
+        plt.savefig(plot_file)
+        plt.close()
+
+        overall_results[product] = {
+            'best_model': best_name,
+            'metrics': product_results[best_name],
+            'scenarios': scenarios,
+            'ts_csv': ts_file,
+            'plot': plot_file
+        }
+
+    # Save summary
+    summary_file = os.path.join(out_dir, 'summary.json')
+    with open(summary_file, 'w', encoding='utf-8') as f:
+        json.dump({'generated_at': datetime.now().isoformat(), 'products': overall_results}, f, indent=2, ensure_ascii=False)
+
+    print(f"Analysis complete. Outputs written to: {out_dir}")
+    return overall_results
+
+
+def main():
+    print("Starting UMKM analysis pipeline")
+    try:
+        df = load_data()
+    except Exception as e:
+        print(f"Failed to load data: {e}")
+        return
+
+    try:
+        results = prepare_and_train(df)
+        print("Done. Summary: ")
+        print(json.dumps({k: v['best_model'] for k,v in results.items()}, indent=2))
+    except Exception as e:
+        print(f"Processing error: {e}")
+
+
+if __name__ == '__main__':
+    main()
+"""
+ENHANCED UMKM STOCK FORECASTING - ANALYSIS SCRIPT
+
+This file replaces the previous FastAPI-based `main.py` with the requested
+standalone analysis script. It performs data loading, feature engineering,
+per-product temporal splitting, model training, evaluation and visualization.
+
+Run from the repository root or the `backend` folder. Ensure `pandas`,
+`numpy`, `matplotlib`, `seaborn`, `scikit-learn` and `xgboost` are installed.
+"""
+
+import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from xgboost import XGBRegressor
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, mean_absolute_percentage_error
+from sklearn.preprocessing import LabelEncoder
+import warnings
+warnings.filterwarnings('ignore')
 
-app = FastAPI(title="UMKM Forecasting API", version="1.0.0")
+sns.set_style("whitegrid")
+plt.rcParams['figure.figsize'] = (16, 6)
 
-# CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+print("="*100)
+print(" ENHANCED UMKM DAILY STOCK FORECASTING - COMPREHENSIVE ANALYSIS")
+print("="*100)
 
-# Global storage for session data
-sessions = {}
 
 # =====================================================================
 # UTILITY FUNCTIONS
