@@ -1,22 +1,34 @@
 // API Base URL Configuration
 // Priority order:
 // 1. Explicit config.js setting (window.API_URL)
-// 2. Production Railway URL
+// 2. Production Railway URL for GitHub Pages
 // 3. Development localhost
 const API_URL = (() => {
-    // Check for explicit configuration
-    if (typeof window !== 'undefined' && window.API_URL) {
-        return window.API_URL;
+    try {
+        // 1. Check for explicit configuration from config.js
+        if (typeof window !== 'undefined' && window.API_URL) {
+            return window.API_URL;
+        }
+
+        // 2. Detect GitHub Pages and use Railway
+        const isGitHubPages = typeof window !== 'undefined' && (
+            window.location.hostname.endsWith('github.io') ||
+            window.location.hostname === 'abdullahzunorain.github.io'
+        );
+
+        if (isGitHubPages) {
+            // Always use HTTPS for GitHub Pages
+            return 'https://umkm-forecasting-app-production.up.railway.app';
+        }
+
+        // 3. Fallback to localhost for development
+        return 'http://localhost:8000';
+    } catch (e) {
+        // Safeguard against any window/location access errors
+        console.warn('Error detecting environment:', e);
+        // Default to production URL if detection fails
+        return 'https://umkm-forecasting-app-production.up.railway.app';
     }
-    
-    // Check if we're on GitHub Pages
-    const isGitHubPages = typeof window !== 'undefined' && 
-        window.location.hostname.endsWith('github.io');
-    
-    // Use Railway in production, localhost in development
-    return isGitHubPages
-        ? 'https://umkm-forecasting-app-production.up.railway.app'
-        : 'http://localhost:8000';
 })();
 
 // Global state
@@ -77,32 +89,55 @@ function showScreen(screenId) {
     }
 }
 
-// File upload handlers
-uploadArea.addEventListener('click', () => fileInput.click());
+// File upload handlers with GitHub Pages compatibility
+uploadArea.addEventListener('click', () => {
+    if (!fileInput) {
+        console.error('File input element not found');
+        alert('Upload functionality not available. Please try refreshing the page.');
+        return;
+    }
+    fileInput.click();
+    uploadArea.classList.add('active');
+    setTimeout(() => uploadArea.classList.remove('active'), 200);
+});
+
+// Prevent default drag behaviors
+uploadArea.addEventListener('dragenter', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+});
 
 uploadArea.addEventListener('dragover', (e) => {
     e.preventDefault();
+    e.stopPropagation();
     uploadArea.classList.add('dragover');
 });
 
-uploadArea.addEventListener('dragleave', () => {
+uploadArea.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
     uploadArea.classList.remove('dragover');
 });
 
 uploadArea.addEventListener('drop', (e) => {
     e.preventDefault();
+    e.stopPropagation();
     uploadArea.classList.remove('dragover');
     
-    const files = e.dataTransfer.files;
-    if (files.length > 0) {
+    const files = e.dataTransfer?.files;
+    if (files?.length > 0) {
         handleFileUpload(files[0]);
     }
 });
 
-fileInput.addEventListener('change', (e) => {
-    if (e.target.files.length > 0) {
-        handleFileUpload(e.target.files[0]);
-    }
+// Handle both change and input events for better mobile support
+['change', 'input'].forEach(event => {
+    fileInput.addEventListener(event, (e) => {
+        const files = e.target?.files;
+        if (files?.length > 0) {
+            handleFileUpload(files[0]);
+        }
+    });
 });
 
 // Upload file to backend with robust error handling
