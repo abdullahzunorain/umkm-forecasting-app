@@ -5,6 +5,7 @@
 // Example:
 // window.API_URL = 'https://your-backend-url.deta.dev';
 
-// Replace the placeholder below with your deployed backend URL:
-// window.API_URL = 'REPLACE_WITH_BACKEND_URL';
-const API_URL = "https://umkm-forecasting-app-production.up.railway.app";
+// Replace the placeholder below with your deployed backend URL and copy this
+// file to `config.js` next to `app.js`. Ensure `config.js` is included before
+// `app.js` in `index.html`.
+window.API_URL = 'https://umkm-forecasting-app-production.up.railway.app';

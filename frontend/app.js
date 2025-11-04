@@ -1,12 +1,11 @@
 // API Base URL
-// If you deploy the frontend separately (e.g., GitHub Pages), create a small
-// `config.js` that sets `window.API_URL = 'https://your-backend-url'` before
-// loading this script. This keeps the code backwards-compatible with local dev.
-// const API_URL = window.API_URL || 'http://localhost:8000';
-
-// const API_BASE_URL = "https://umkm-forecasting-app-production.up.railway.app";
-// top of frontend/app.js
-const API_URL = "https://umkm-forecasting-app-production.up.railway.app";
+// Behavior:
+// - If you provide a `config.js` that sets `window.API_URL = 'https://...'` and
+//   include it before this script in `index.html`, that value will be used.
+// - Otherwise the code will fall back to the production Railway URL below.
+const API_URL = (typeof window !== 'undefined' && window.API_URL)
+    ? window.API_URL
+    : 'https://umkm-forecasting-app-production.up.railway.app';
 
 
 // Global state
