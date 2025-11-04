@@ -1,18 +1,27 @@
 // ===== API Base URL =====
 const API_URL = (() => {
     try {
+        // Check for explicit API URL override
         if (typeof window !== 'undefined' && window.API_URL) return window.API_URL;
 
+        // GitHub Pages detection with repository path handling
         const isGitHubPages = typeof window !== 'undefined' && (
             window.location.hostname.endsWith('github.io') ||
             window.location.hostname === 'abdullahzunorain.github.io'
         );
 
-        if (isGitHubPages) return 'https://umkm-forecasting-app-production.up.railway.app';
+        // Default to production API for GitHub Pages
+        if (isGitHubPages) {
+            console.log('Running on GitHub Pages, using production API');
+            return 'https://umkm-forecasting-app-production.up.railway.app';
+        }
 
+        // Development fallback
+        console.log('Running in development mode');
         return 'http://localhost:8000';
     } catch (e) {
         console.warn('Error detecting environment:', e);
+        // Fallback to production API
         return 'https://umkm-forecasting-app-production.up.railway.app';
     }
 })();
