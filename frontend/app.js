@@ -1,5 +1,8 @@
 // API Base URL
-const API_URL = 'http://localhost:8000';
+// If you deploy the frontend separately (e.g., GitHub Pages), create a small
+// `config.js` that sets `window.API_URL = 'https://your-backend-url'` before
+// loading this script. This keeps the code backwards-compatible with local dev.
+const API_URL = window.API_URL || 'http://localhost:8000';
 
 // Global state
 let sessionId = null;
