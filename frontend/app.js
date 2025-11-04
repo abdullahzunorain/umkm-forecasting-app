@@ -5,16 +5,17 @@
 const API_URL = (typeof window !== 'undefined' && window.API_URL)
     ? window.API_URL
     : 'https://umkm-forecasting-app-production.up.railway.app';
+
        
-$sessionId = "<session_id>"
+let sessionId = "<session_id>"
 Invoke-RestMethod -Method Post -Uri "https://umkm-forecasting-app-production.up.railway.app/api/train/$sessionId" -TimeoutSec 600
 
 let trainingResults = null;
 
-// // Global state
+// Global state
 // let sessionId = null;
-// let uploadedData = null;
-// let trainingResults = null;
+let uploadedData = null;
+let trainingResults = null;
 
 // Small safe logger
 const log = (...args) => { if (typeof console !== 'undefined') console.log(...args); };
