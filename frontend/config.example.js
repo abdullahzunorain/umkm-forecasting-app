@@ -6,4 +6,5 @@
 // window.API_URL = 'https://your-backend-url.deta.dev';
 
 // Replace the placeholder below with your deployed backend URL:
-window.API_URL = 'REPLACE_WITH_BACKEND_URL';
+// window.API_URL = 'REPLACE_WITH_BACKEND_URL';
+const API_URL = "https://umkm-forecasting-app-production.up.railway.app";
