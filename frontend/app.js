@@ -2,21 +2,18 @@
 // If you deploy the frontend separately (e.g., GitHub Pages), create a small
 // `config.js` that sets `window.API_URL = 'https://your-backend-url'` before
 // loading this script. This keeps the code backwards-compatible with local dev.
-// const API_URL = window.API_URL || 'http://localhost:8000';
-// const API_BASE_URL = "https://umkm-forecasting-app-production.up.railway.app";
-// top of frontend/app.js
-const API_URL = "https://umkm-forecasting-app-production.up.railway.app";
-
+const API_URL = (typeof window !== 'undefined' && window.API_URL)
+    ? window.API_URL
+    : 'https://umkm-forecasting-app-production.up.railway.app';
 
 
 // Global state
-// let sessionId = null;
-// let uploadedData = null;# Replace <session_id> and <BACKEND_URL> accordingly
-
-$sessionId = "<session_id>"
-Invoke-RestMethod -Method Post -Uri "https://umkm-forecasting-app-production.up.railway.app/api/train/$sessionId" -TimeoutSec 600
-
+let sessionId = null;
+let uploadedData = null;
 let trainingResults = null;
+
+// Small safe logger
+const log = (...args) => { if (typeof console !== 'undefined') console.log(...args); };
 
 // DOM Elements
 const fileInput = document.getElementById('fileInput');
@@ -64,77 +61,142 @@ function showScreen(screenId) {
     }
 }
 
-// File upload handlers
-uploadArea.addEventListener('click', () => fileInput.click());
+// File upload handlers (desktop + mobile)
+uploadArea.addEventListener('click', () => {
+    // trigger native file picker
+    if (fileInput) fileInput.click();
+    uploadArea.classList.add('active');
+    setTimeout(() => uploadArea.classList.remove('active'), 200);
+});
 
+// Mobile friendly: also respond to touch
+uploadArea.addEventListener('touchstart', (e) => {
+    uploadArea.classList.add('active');
+}, { passive: true });
+
+uploadArea.addEventListener('touchend', (e) => {
+    uploadArea.classList.remove('active');
+    // some mobile browsers allow click fallback to open file dialog
+    if (fileInput) fileInput.click();
+});
+
+// Drag & drop (desktop)
 uploadArea.addEventListener('dragover', (e) => {
     e.preventDefault();
+    e.stopPropagation();
     uploadArea.classList.add('dragover');
 });
 
-uploadArea.addEventListener('dragleave', () => {
+uploadArea.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
     uploadArea.classList.remove('dragover');
 });
 
 uploadArea.addEventListener('drop', (e) => {
     e.preventDefault();
+    e.stopPropagation();
     uploadArea.classList.remove('dragover');
-    
-    const files = e.dataTransfer.files;
-    if (files.length > 0) {
-        handleFileUpload(files[0]);
-    }
+    const files = (e.dataTransfer && e.dataTransfer.files) ? e.dataTransfer.files : [];
+    if (files.length > 0) validateAndUpload(files[0]);
 });
 
+// file input change
 fileInput.addEventListener('change', (e) => {
-    if (e.target.files.length > 0) {
-        handleFileUpload(e.target.files[0]);
+    if (e && e.target && e.target.files && e.target.files.length > 0) {
+        validateAndUpload(e.target.files[0]);
     }
 });
 
-// Upload file to backend
-async function handleFileUpload(file) {
-    if (!file.name.endsWith('.csv')) {
-        alert('Please upload a CSV file');
+// Validate file before upload (CSV & size check)
+function validateAndUpload(file) {
+    if (!file) return;
+    uploadArea.classList.remove('error');
+
+    const name = (file.name || '').toLowerCase();
+    if (!name.endsWith('.csv')) {
+        uploadArea.classList.add('error');
+        alert('Please upload a CSV file.');
         return;
     }
-    
+
+    const maxSize = 20 * 1024 * 1024; // 20 MB
+    if (file.size && file.size > maxSize) {
+        uploadArea.classList.add('error');
+        alert('File is too large. Please upload a file smaller than 20MB.');
+        return;
+    }
+
+    // All good — start upload
+    handleFileUpload(file);
+}
+
+// Upload file to backend with timeout and better error handling
+async function handleFileUpload(file) {
+    if (!file) return;
+
     showScreen('loading');
-    document.getElementById('loadingText').textContent = 'Uploading and processing data...';
+    const loadingText = document.getElementById('loadingText');
+    if (loadingText) loadingText.textContent = 'Uploading and processing data...';
     setActiveStep(1);
-    
+
     const formData = new FormData();
     formData.append('file', file);
-    
+
     try {
-        const response = await fetch(`${API_URL}/api/upload`, {
+        const controller = new AbortController();
+        // 60s timeout for upload — adjust if backend is slow
+        const timeoutMs = 60000;
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+        const resp = await fetch(`${API_URL.replace(/\/$/, '')}/api/upload`, {
             method: 'POST',
-            body: formData
+            body: formData,
+            signal: controller.signal,
+            headers: {
+                'Accept': 'application/json'
+            }
         });
-        
-        if (!response.ok) {
-            throw new Error('Upload failed');
+
+        clearTimeout(timeoutId);
+
+        if (!resp.ok) {
+            // try to read error body
+            let errText = `Upload failed (status ${resp.status})`;
+            try { errText = await resp.text(); } catch (e) { /* ignore */ }
+            throw new Error(errText || `Upload failed with status ${resp.status}`);
         }
-        
-        uploadedData = await response.json();
-        sessionId = uploadedData.session_id;
-        
+
+        const json = await resp.json();
+        uploadedData = json;
+        sessionId = uploadedData.session_id || uploadedData.sessionId || null;
+
+        // If sessionId still missing, show error
+        if (!sessionId) {
+            log('Warning: session_id not returned by backend', uploadedData);
+        }
+
         displayDatasetInfo(uploadedData);
-        trainBtn.disabled = false;
+        if (trainBtn) trainBtn.disabled = false;
         showScreen('welcome');
-        
+
         // Show success message
         const successMsg = document.createElement('div');
         successMsg.className = 'success-message';
         successMsg.innerHTML = `
             <strong>✓ File uploaded successfully!</strong><br>
-            Processed ${uploadedData.total_records.toLocaleString()} records from ${uploadedData.date_range.start} to ${uploadedData.date_range.end}
+            Processed ${uploadedData.total_records?.toLocaleString?.() || 'N/A'} records
         `;
-        welcomeScreen.insertBefore(successMsg, welcomeScreen.firstChild);
-        
+        if (welcomeScreen) welcomeScreen.insertBefore(successMsg, welcomeScreen.firstChild);
+
     } catch (error) {
+        log('handleFileUpload error:', error);
         showScreen('welcome');
-        alert('Error uploading file: ' + error.message);
+        if (error.name === 'AbortError') {
+            alert('Upload timed out. Please try again with a smaller file or a faster connection.');
+        } else {
+            alert('Error uploading file: ' + (error.message || error));
+        }
     }
 }
 
