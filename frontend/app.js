@@ -1,10 +1,35 @@
-// API Base URL
-const API_URL = 'http://localhost:8000';
+// API Base URL Configuration
+// Priority order:
+// 1. Explicit config.js setting (window.API_URL)
+// 2. Production Railway URL
+// 3. Development localhost
+const API_URL = (() => {
+    // Check for explicit configuration
+    if (typeof window !== 'undefined' && window.API_URL) {
+        return window.API_URL;
+    }
+    
+    // Check if we're on GitHub Pages
+    const isGitHubPages = typeof window !== 'undefined' && 
+        window.location.hostname.endsWith('github.io');
+    
+    // Use Railway in production, localhost in development
+    return isGitHubPages
+        ? 'https://umkm-forecasting-app-production.up.railway.app'
+        : 'http://localhost:8000';
+})();
 
 // Global state
 let sessionId = null;
 let uploadedData = null;
 let trainingResults = null;
+
+// Safe console wrapper
+const log = (...args) => {
+    if (typeof console !== 'undefined' && console.log) {
+        console.log('[UMKM App]', ...args);
+    }
+};
 
 // DOM Elements
 const fileInput = document.getElementById('fileInput');
@@ -80,28 +105,63 @@ fileInput.addEventListener('change', (e) => {
     }
 });
 
-// Upload file to backend
+// Upload file to backend with robust error handling
 async function handleFileUpload(file) {
-    if (!file.name.endsWith('.csv')) {
+    if (!file || !file.name) {
+        alert('Invalid file selected');
+        return;
+    }
+
+    if (!file.name.toLowerCase().endsWith('.csv')) {
         alert('Please upload a CSV file');
         return;
     }
     
     showScreen('loading');
-    document.getElementById('loadingText').textContent = 'Uploading and processing data...';
+    const loadingText = document.getElementById('loadingText');
+    if (loadingText) loadingText.textContent = 'Uploading and processing data...';
     setActiveStep(1);
     
     const formData = new FormData();
     formData.append('file', file);
     
     try {
+        // Setup request with timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
+        
+        log('Uploading to:', API_URL);
         const response = await fetch(`${API_URL}/api/upload`, {
             method: 'POST',
-            body: formData
+            body: formData,
+            signal: controller.signal,
+            headers: {
+                'Accept': 'application/json'
+            }
         });
         
+        clearTimeout(timeoutId);
+        
         if (!response.ok) {
-            throw new Error('Upload failed');
+            let errorMessage = `Upload failed (${response.status})`;
+            
+            // Try to get detailed error from response
+            try {
+                const errorBody = await response.text();
+                if (errorBody) {
+                    errorMessage = errorBody;
+                } else if (response.status === 404) {
+                    errorMessage = 'API endpoint not found. Please check the backend server is running.';
+                } else if (response.status === 413) {
+                    errorMessage = 'File too large. Please try a smaller CSV file.';
+                } else if (response.status >= 500) {
+                    errorMessage = 'Server error. Please try again later.';
+                }
+            } catch (e) {
+                // Ignore error reading body
+            }
+            
+            throw new Error(errorMessage);
         }
         
         uploadedData = await response.json();
@@ -156,7 +216,7 @@ function displayDatasetInfo(data) {
     document.getElementById('datasetStats').innerHTML = stats;
 }
 
-// Train models
+// Train models with timeout and error handling
 trainBtn.addEventListener('click', async () => {
     if (!sessionId) {
         alert('Please upload a file first');
@@ -164,16 +224,43 @@ trainBtn.addEventListener('click', async () => {
     }
     
     showScreen('loading');
-    document.getElementById('loadingText').textContent = 'Training models... This may take a few minutes';
+    const loadingText = document.getElementById('loadingText');
+    if (loadingText) loadingText.textContent = 'Training models... This may take a few minutes';
     setActiveStep(2);
     
     try {
+        // Setup request with longer timeout for training
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 min timeout
+        
+        log('Training request for session:', sessionId);
         const response = await fetch(`${API_URL}/api/train/${sessionId}`, {
-            method: 'POST'
+            method: 'POST',
+            signal: controller.signal,
+            headers: {
+                'Accept': 'application/json'
+            }
         });
         
+        clearTimeout(timeoutId);
+        
         if (!response.ok) {
-            throw new Error('Training failed');
+            let errorMessage = `Training failed (${response.status})`;
+            
+            try {
+                const errorBody = await response.text();
+                if (errorBody) {
+                    errorMessage = errorBody;
+                } else if (response.status === 404) {
+                    errorMessage = 'Session not found. Please try uploading the file again.';
+                } else if (response.status >= 500) {
+                    errorMessage = 'Server error during training. Please try again later.';
+                }
+            } catch (e) {
+                // Ignore error reading body
+            }
+            
+            throw new Error(errorMessage);
         }
         
         trainingResults = await response.json();
