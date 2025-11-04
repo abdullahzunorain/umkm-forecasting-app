@@ -84,38 +84,55 @@ function showScreen(screenId) {
     }
 }
 
-// ===== File Upload =====
+// ===== File Upload (single, consolidated setup) =====
 if (uploadArea && fileInput) {
+    // Click to open native file picker
     uploadArea.addEventListener('click', () => {
         fileInput.click();
         uploadArea.classList.add('active');
         setTimeout(() => uploadArea.classList.remove('active'), 200);
     });
 
+    // Drag & drop handlers
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(event => {
         uploadArea.addEventListener(event, e => {
             e.preventDefault();
             e.stopPropagation();
+
             if (event === 'dragover') uploadArea.classList.add('dragover');
             if (event === 'dragleave' || event === 'drop') uploadArea.classList.remove('dragover');
-            if (event === 'drop') handleFileUpload(e.dataTransfer?.files?.[0]);
+
+            if (event === 'drop') {
+                const file = e.dataTransfer?.files?.[0];
+                if (file) handleFileUpload(file);
+            }
         });
     });
 
+    // Handle file input change (covers mobile and desktop file pick)
     ['change', 'input'].forEach(event => {
         fileInput.addEventListener(event, e => {
-            handleFileUpload(e.target?.files?.[0]);
+            const file = e.target?.files?.[0];
+            if (file) handleFileUpload(file);
         });
     });
 }
 
-// ===== Handle File Upload =====
+// Single robust upload handler
 async function handleFileUpload(file) {
-    if (!file || !file.name) return alert('Invalid file selected');
-    if (!file.name.toLowerCase().endsWith('.csv')) return alert('Please upload a CSV file');
+    if (!file || !file.name) {
+        alert('Invalid file selected');
+        return;
+    }
+
+    if (!file.name.toLowerCase().endsWith('.csv')) {
+        alert('Please upload a CSV file');
+        return;
+    }
 
     showScreen('loading');
-    document.getElementById('loadingText')?.textContent = 'Uploading and processing data...';
+    const loadingText = document.getElementById('loadingText');
+    if (loadingText) loadingText.textContent = 'Uploading and processing data...';
     setActiveStep(1);
 
     const formData = new FormData();
@@ -136,144 +153,34 @@ async function handleFileUpload(file) {
         clearTimeout(timeoutId);
 
         if (!response.ok) {
-            let msg = `Upload failed (${response.status})`;
-            try { msg = await response.text() || msg; } catch {}
-            throw new Error(msg);
-        }
-
-        uploadedData = await response.json();
-        sessionId = uploadedData.session_id;
-
-        displayDatasetInfo(uploadedData);
-        trainBtn && (trainBtn.disabled = false);
-        showScreen('welcome');
-
-        const successMsg = document.createElement('div');
-        successMsg.className = 'success-message';
-        successMsg.innerHTML = `<strong>✓ File uploaded successfully!</strong><br>
-            Processed ${uploadedData.total_records?.toLocaleString() || 0} records from ${uploadedData.date_range?.start || '-'} to ${uploadedData.date_range?.end || '-'}`;
-        welcomeScreen?.insertBefore(successMsg, welcomeScreen.firstChild);
-
-    } catch (error) {
-        showScreen('welcome');
-        alert('Error uploading file: ' + error.message);
-    }
-}
-
-// Prevent default drag behaviors
-uploadArea.addEventListener('dragenter', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-});
-
-uploadArea.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    uploadArea.classList.add('dragover');
-});
-
-uploadArea.addEventListener('dragleave', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    uploadArea.classList.remove('dragover');
-});
-
-uploadArea.addEventListener('drop', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    uploadArea.classList.remove('dragover');
-    
-    const files = e.dataTransfer?.files;
-    if (files?.length > 0) {
-        handleFileUpload(files[0]);
-    }
-});
-
-// Handle both change and input events for better mobile support
-['change', 'input'].forEach(event => {
-    fileInput.addEventListener(event, (e) => {
-        const files = e.target?.files;
-        if (files?.length > 0) {
-            handleFileUpload(files[0]);
-        }
-    });
-});
-
-// Upload file to backend with robust error handling
-async function handleFileUpload(file) {
-    if (!file || !file.name) {
-        alert('Invalid file selected');
-        return;
-    }
-
-    if (!file.name.toLowerCase().endsWith('.csv')) {
-        alert('Please upload a CSV file');
-        return;
-    }
-    
-    showScreen('loading');
-    const loadingText = document.getElementById('loadingText');
-    if (loadingText) loadingText.textContent = 'Uploading and processing data...';
-    setActiveStep(1);
-    
-    const formData = new FormData();
-    formData.append('file', file);
-    
-    try {
-        // Setup request with timeout
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
-        
-        log('Uploading to:', API_URL);
-        const response = await fetch(`${API_URL}/api/upload`, {
-            method: 'POST',
-            body: formData,
-            signal: controller.signal,
-            headers: {
-                'Accept': 'application/json'
-            }
-        });
-        
-        clearTimeout(timeoutId);
-        
-        if (!response.ok) {
             let errorMessage = `Upload failed (${response.status})`;
-            
-            // Try to get detailed error from response
             try {
                 const errorBody = await response.text();
-                if (errorBody) {
-                    errorMessage = errorBody;
-                } else if (response.status === 404) {
-                    errorMessage = 'API endpoint not found. Please check the backend server is running.';
-                } else if (response.status === 413) {
-                    errorMessage = 'File too large. Please try a smaller CSV file.';
-                } else if (response.status >= 500) {
-                    errorMessage = 'Server error. Please try again later.';
-                }
+                if (errorBody) errorMessage = errorBody;
+                else if (response.status === 404) errorMessage = 'API endpoint not found. Please check the backend server is running.';
+                else if (response.status === 413) errorMessage = 'File too large. Please try a smaller CSV file.';
+                else if (response.status >= 500) errorMessage = 'Server error. Please try again later.';
             } catch (e) {
-                // Ignore error reading body
+                // ignore
             }
-            
             throw new Error(errorMessage);
         }
-        
+
         uploadedData = await response.json();
         sessionId = uploadedData.session_id;
-        
+
         displayDatasetInfo(uploadedData);
-        trainBtn.disabled = false;
+        if (trainBtn) trainBtn.disabled = false;
         showScreen('welcome');
-        
-        // Show success message
+
         const successMsg = document.createElement('div');
         successMsg.className = 'success-message';
         successMsg.innerHTML = `
             <strong>✓ File uploaded successfully!</strong><br>
-            Processed ${uploadedData.total_records.toLocaleString()} records from ${uploadedData.date_range.start} to ${uploadedData.date_range.end}
+            Processed ${uploadedData.total_records?.toLocaleString() || 0} records from ${uploadedData.date_range?.start || '-'} to ${uploadedData.date_range?.end || '-'}
         `;
-        welcomeScreen.insertBefore(successMsg, welcomeScreen.firstChild);
-        
+        if (welcomeScreen) welcomeScreen.insertBefore(successMsg, welcomeScreen.firstChild);
+
     } catch (error) {
         showScreen('welcome');
         alert('Error uploading file: ' + error.message);
