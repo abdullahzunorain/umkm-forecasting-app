@@ -1,49 +1,34 @@
-// API Base URL Configuration
-// Priority order:
-// 1. Explicit config.js setting (window.API_URL)
-// 2. Production Railway URL for GitHub Pages
-// 3. Development localhost
+// ===== API Base URL =====
 const API_URL = (() => {
     try {
-        // 1. Check for explicit configuration from config.js
-        if (typeof window !== 'undefined' && window.API_URL) {
-            return window.API_URL;
-        }
+        if (typeof window !== 'undefined' && window.API_URL) return window.API_URL;
 
-        // 2. Detect GitHub Pages and use Railway
         const isGitHubPages = typeof window !== 'undefined' && (
             window.location.hostname.endsWith('github.io') ||
             window.location.hostname === 'abdullahzunorain.github.io'
         );
 
-        if (isGitHubPages) {
-            // Always use HTTPS for GitHub Pages
-            return 'https://umkm-forecasting-app-production.up.railway.app';
-        }
+        if (isGitHubPages) return 'https://umkm-forecasting-app-production.up.railway.app';
 
-        // 3. Fallback to localhost for development
         return 'http://localhost:8000';
     } catch (e) {
-        // Safeguard against any window/location access errors
         console.warn('Error detecting environment:', e);
-        // Default to production URL if detection fails
         return 'https://umkm-forecasting-app-production.up.railway.app';
     }
 })();
 
-// Global state
+
+// ===== Global state =====
 let sessionId = null;
 let uploadedData = null;
 let trainingResults = null;
 
-// Safe console wrapper
+// ===== Safe console =====
 const log = (...args) => {
-    if (typeof console !== 'undefined' && console.log) {
-        console.log('[UMKM App]', ...args);
-    }
+    if (typeof console !== 'undefined' && console.log) console.log('[UMKM App]', ...args);
 };
 
-// DOM Elements
+// ===== DOM Elements =====
 const fileInput = document.getElementById('fileInput');
 const uploadArea = document.getElementById('uploadArea');
 const trainBtn = document.getElementById('trainBtn');
@@ -55,6 +40,7 @@ const loadingScreen = document.getElementById('loadingScreen');
 const resultsScreen = document.getElementById('resultsScreen');
 const financialScreen = document.getElementById('financialScreen');
 const recommendationsScreen = document.getElementById('recommendationsScreen');
+
 
 // Step management
 function setActiveStep(stepNumber) {
@@ -89,17 +75,81 @@ function showScreen(screenId) {
     }
 }
 
-// File upload handlers with GitHub Pages compatibility
-uploadArea.addEventListener('click', () => {
-    if (!fileInput) {
-        console.error('File input element not found');
-        alert('Upload functionality not available. Please try refreshing the page.');
-        return;
+// ===== File Upload =====
+if (uploadArea && fileInput) {
+    uploadArea.addEventListener('click', () => {
+        fileInput.click();
+        uploadArea.classList.add('active');
+        setTimeout(() => uploadArea.classList.remove('active'), 200);
+    });
+
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(event => {
+        uploadArea.addEventListener(event, e => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (event === 'dragover') uploadArea.classList.add('dragover');
+            if (event === 'dragleave' || event === 'drop') uploadArea.classList.remove('dragover');
+            if (event === 'drop') handleFileUpload(e.dataTransfer?.files?.[0]);
+        });
+    });
+
+    ['change', 'input'].forEach(event => {
+        fileInput.addEventListener(event, e => {
+            handleFileUpload(e.target?.files?.[0]);
+        });
+    });
+}
+
+// ===== Handle File Upload =====
+async function handleFileUpload(file) {
+    if (!file || !file.name) return alert('Invalid file selected');
+    if (!file.name.toLowerCase().endsWith('.csv')) return alert('Please upload a CSV file');
+
+    showScreen('loading');
+    document.getElementById('loadingText')?.textContent = 'Uploading and processing data...';
+    setActiveStep(1);
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+        log('Uploading to:', API_URL);
+        const response = await fetch(`${API_URL}/api/upload`, {
+            method: 'POST',
+            body: formData,
+            signal: controller.signal,
+            headers: { 'Accept': 'application/json' }
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+            let msg = `Upload failed (${response.status})`;
+            try { msg = await response.text() || msg; } catch {}
+            throw new Error(msg);
+        }
+
+        uploadedData = await response.json();
+        sessionId = uploadedData.session_id;
+
+        displayDatasetInfo(uploadedData);
+        trainBtn && (trainBtn.disabled = false);
+        showScreen('welcome');
+
+        const successMsg = document.createElement('div');
+        successMsg.className = 'success-message';
+        successMsg.innerHTML = `<strong>✓ File uploaded successfully!</strong><br>
+            Processed ${uploadedData.total_records?.toLocaleString() || 0} records from ${uploadedData.date_range?.start || '-'} to ${uploadedData.date_range?.end || '-'}`;
+        welcomeScreen?.insertBefore(successMsg, welcomeScreen.firstChild);
+
+    } catch (error) {
+        showScreen('welcome');
+        alert('Error uploading file: ' + error.message);
     }
-    fileInput.click();
-    uploadArea.classList.add('active');
-    setTimeout(() => uploadArea.classList.remove('active'), 200);
-});
+}
 
 // Prevent default drag behaviors
 uploadArea.addEventListener('dragenter', (e) => {
