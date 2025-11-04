@@ -10,8 +10,12 @@ const API_URL = "https://umkm-forecasting-app-production.up.railway.app";
 
 
 // Global state
-let sessionId = null;
-let uploadedData = null;
+// let sessionId = null;
+// let uploadedData = null;# Replace <session_id> and <BACKEND_URL> accordingly
+
+$sessionId = "<session_id>"
+Invoke-RestMethod -Method Post -Uri "https://umkm-forecasting-app-production.up.railway.app/api/train/$sessionId" -TimeoutSec 600
+
 let trainingResults = null;
 
 // DOM Elements
