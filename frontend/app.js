@@ -466,33 +466,43 @@ function displayFinancialAnalysis(results) {
     document.getElementById("financialContent").innerHTML = content;
 }
 
-// Display recommendations
+
+
+// Display recommendations - robust version
 async function displayRecommendations(results) {
+    if (!results || !results.model_performance) {
+        console.warn('Results object or model performance missing');
+        document.getElementById('recommendationsContent').innerHTML = '<p>No recommendation data available.</p>';
+        return;
+    }
+
     let productPerf = [];
 
     try {
+        if (!sessionId) console.warn('sessionId is undefined!');
         const response = await fetch(`${API_URL}/api/product-performance/${sessionId}`);
         if (response.ok) {
             const data = await response.json();
             productPerf = data.products || [];
         } else {
-            console.error('Failed to fetch product performance:', response.statusText);
+            console.error('Failed to fetch product performance:', response.status, response.statusText);
         }
     } catch (error) {
         console.error('Error fetching product performance:', error);
     }
 
-    // Ensure productPerf is sorted by MAPE ascending
-    productPerf.sort((a, b) => a.mape - b.mape);
+    // Sort by MAPE ascending for clarity
+    productPerf.sort((a, b) => (a.mape || Infinity) - (b.mape || Infinity));
 
-    const bestProducts = productPerf.slice(0, 3).map(p => p.product);
-    const worstProducts = productPerf.slice(-3).map(p => p.product);
+    const bestProducts = productPerf.slice(0, 3).map(p => p.product || 'Unknown');
+    const worstProducts = productPerf.slice(-3).map(p => p.product || 'Unknown');
 
-    const mlScenario = results.financial_scenarios.ML || results.financial_scenarios.ML_Prediction;
-    const perfectScenario = results.financial_scenarios.Perfect;
-    const baselineScenario = results.financial_scenarios.Baseline;
+    // Safely extract financial scenarios
+    const mlScenario = results.financial_scenarios?.ML || results.financial_scenarios?.ML_Prediction || {};
+    const perfectScenario = results.financial_scenarios?.Perfect || {};
+    const baselineScenario = results.financial_scenarios?.Baseline || {};
 
-    const safeNumber = (val) => (val != null && !isNaN(val)) ? val : 0;
+    const safeNumber = val => (val != null && !isNaN(val)) ? val : 0;
 
     const content = `
         <div class="success-message">
@@ -500,95 +510,74 @@ async function displayRecommendations(results) {
             Based on model analysis and financial projections
         </div>
 
-        <h3 style="margin-bottom: 15px;">1. Production Strategy</h3>
+        <h3>1. Production Strategy</h3>
         <div class="recommendation-box">
-            <h4>📦 Recommended Approach</h4>
             <ul>
-                <li><strong>Use ML predictions as base production quantity</strong> - The model shows ${safeNumber(results.model_performance[results.best_model].test_mape).toFixed(1)}% average error</li>
-                <li><strong>Add 5-10% safety buffer</strong> for high-demand periods (Ramadan, near-Eid)</li>
-                <li><strong>Maintain tighter inventory</strong> for products with stable demand patterns</li>
+                <li><strong>Use ML predictions as base production quantity</strong> - model MAPE: ${safeNumber(results.model_performance[results.best_model]?.test_mape).toFixed(1)}%</li>
+                <li><strong>Add 5-10% safety buffer</strong> for high-demand periods</li>
+                <li><strong>Maintain tighter inventory</strong> for stable-demand products</li>
                 <li><strong>Review predictions daily</strong> and adjust based on actual sales</li>
             </ul>
         </div>
 
-        <h3 style="margin-top: 30px; margin-bottom: 15px;">2. Product-Specific Actions</h3>
+        <h3>2. Product-Specific Actions</h3>
         ${productPerf.length > 0 ? `
-        <div class="table-container">
-            <table>
-                <thead>
+        <table>
+            <thead>
+                <tr>
+                    <th>Product</th>
+                    <th>Avg Actual</th>
+                    <th>Avg Predicted</th>
+                    <th>MAE</th>
+                    <th>MAPE (%)</th>
+                    <th>Recommendation</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${productPerf.slice(0, 5).map(p => `
                     <tr>
-                        <th>Product</th>
-                        <th>Avg Actual</th>
-                        <th>Avg Predicted</th>
-                        <th>MAE</th>
-                        <th>MAPE (%)</th>
-                        <th>Recommendation</th>
+                        <td>${p.product || 'Unknown'}</td>
+                        <td>${safeNumber(p.avg_actual).toFixed(1)}</td>
+                        <td>${safeNumber(p.avg_predicted).toFixed(1)}</td>
+                        <td>${safeNumber(p.mae).toFixed(2)}</td>
+                        <td>${safeNumber(p.mape).toFixed(2)}</td>
+                        <td>${safeNumber(p.mae) < 5 ? '✓ Trust model' : safeNumber(p.mae) < 10 ? '⚠ Add buffer' : '❌ Manual review'}</td>
                     </tr>
-                </thead>
-                <tbody>
-                    ${productPerf.slice(0, 5).map(p => `
-                        <tr>
-                            <td><strong>${p.product}</strong></td>
-                            <td>${safeNumber(p.avg_actual).toFixed(1)}</td>
-                            <td>${safeNumber(p.avg_predicted).toFixed(1)}</td>
-                            <td>${safeNumber(p.mae).toFixed(2)}</td>
-                            <td>${safeNumber(p.mape).toFixed(2)}%</td>
-                            <td>${safeNumber(p.mae) < 5 ? '✓ Trust model' : safeNumber(p.mae) < 10 ? '⚠ Add buffer' : '❌ Manual review'}</td>
-                        </tr>
-                    `).join('')}
-                </tbody>
-            </table>
-        </div>
-        ` : '<p>Product performance data not available</p>'}
+                `).join('')}
+            </tbody>
+        </table>` : '<p>Product performance data not available.</p>'}
 
-        <h3 style="margin-top: 30px; margin-bottom: 15px;">3. Seasonal Considerations</h3>
+        <h3>3. Seasonal Considerations</h3>
         <div class="recommendation-box">
-            <h4>📅 Calendar Events</h4>
             <ul>
-                <li><strong>Ramadan Period:</strong> Distinct demand patterns captured by the model - trust predictions closely</li>
-                <li><strong>Pre-Eid (5-7 days before):</strong> Increase production by 15-20% for all products</li>
-                <li><strong>Post-Eid (7 days after):</strong> Reduce production gradually, monitor actual demand</li>
-                <li><strong>Weekend Patterns:</strong> Sunday closures accounted for, Saturday may need adjustment</li>
-                <li><strong>National Holidays:</strong> Zero production recommended (Jan 1, Aug 17, Dec 25)</li>
+                <li><strong>Ramadan:</strong> Trust model predictions closely</li>
+                <li><strong>Pre-Eid:</strong> Increase production by 15-20%</li>
+                <li><strong>Post-Eid:</strong> Reduce production gradually</li>
+                <li><strong>Weekends & Holidays:</strong> Adjust production accordingly</li>
             </ul>
         </div>
 
-        <h3 style="margin-top: 30px; margin-bottom: 15px;">4. Implementation Guidelines</h3>
+        <h3>4. Continuous Improvement</h3>
         <div class="recommendation-box">
-            <h4>🚀 How to Use This System</h4>
             <ul>
-                <li><strong>Daily:</strong> Use model predictions for next-day production planning</li>
-                <li><strong>Weekly:</strong> Review forecast accuracy and adjust safety buffers as needed</li>
-                <li><strong>Monthly:</strong> Retrain model with latest data to capture new patterns</li>
-                <li><strong>Track Metrics:</strong> Monitor waste reduction, service level, and actual vs predicted</li>
-                <li><strong>Document Adjustments:</strong> Keep notes on manual overrides and their outcomes</li>
-            </ul>
-        </div>
-
-        <h3 style="margin-top: 30px; margin-bottom: 15px;">5. Continuous Improvement</h3>
-        <div class="recommendation-box">
-            <h4>📈 Next Steps</h4>
-            <ul>
-                <li><strong>Current Performance:</strong> ${safeNumber(results.model_performance[results.best_model].test_r2).toFixed(2)} R² score indicates good predictive power</li>
-                <li><strong>Potential Gains:</strong> Additional ${((safeNumber(perfectScenario.total_profit) - safeNumber(mlScenario.total_profit)) / Math.abs(safeNumber(baselineScenario.total_profit)) * 100).toFixed(1)}% improvement possible with perfect forecasting</li>
-            </ul>
-        </div>
-
-        <div style="margin-top: 30px; padding: 20px; background: #e8f5e9; border-radius: 10px; border-left: 4px solid #48bb78;">
-            <h3 style="color: #48bb78; margin-bottom: 15px;">✅ Expected Outcomes</h3>
-            <p style="color: #666; line-height: 1.8;">
-                If implemented correctly, this forecasting system should deliver:
-            </p>
-            <ul style="color: #666; line-height: 2; margin-top: 10px;">
-                <li><strong>Profit Improvement:</strong> ${((safeNumber(mlScenario.total_profit) - safeNumber(baselineScenario.total_profit)) / Math.abs(safeNumber(baselineScenario.total_profit)) * 100).toFixed(1)}% over baseline approach</li>
-                <li><strong>Waste Reduction:</strong> ${((safeNumber(baselineScenario.total_waste) - safeNumber(mlScenario.total_waste)) / safeNumber(baselineScenario.total_waste) * 100).toFixed(1)}% fewer units wasted</li>
-                <li><strong>Service Level:</strong> ${safeNumber(mlScenario.service_level).toFixed(1)}% customer satisfaction</li>
+                <li><strong>Current Performance:</strong> R²: ${safeNumber(results.model_performance[results.best_model]?.test_r2).toFixed(2)}</li>
+                <li><strong>Potential Gains:</strong> ${((safeNumber(perfectScenario.total_profit) - safeNumber(mlScenario.total_profit)) / Math.abs(safeNumber(baselineScenario.total_profit)) * 100).toFixed(1)}%</li>
+                <li><strong>Profit Improvement:</strong> ${((safeNumber(mlScenario.total_profit) - safeNumber(baselineScenario.total_profit)) / Math.abs(safeNumber(baselineScenario.total_profit)) * 100).toFixed(1)}%</li>
+                <li><strong>Waste Reduction:</strong> ${((safeNumber(baselineScenario.total_waste) - safeNumber(mlScenario.total_waste)) / safeNumber(baselineScenario.total_waste) * 100).toFixed(1)}%</li>
+                <li><strong>Service Level:</strong> ${safeNumber(mlScenario.service_level).toFixed(1)}%</li>
             </ul>
         </div>
     `;
 
-    document.getElementById('recommendationsContent').innerHTML = content;
+    const container = document.getElementById('recommendationsContent');
+    if (container) {
+        container.innerHTML = content;
+    } else {
+        console.error('Element with id "recommendationsContent" not found.');
+    }
 }
+
+
 
 // Step click handlers
 document.querySelectorAll('.step').forEach((step, index) => {
