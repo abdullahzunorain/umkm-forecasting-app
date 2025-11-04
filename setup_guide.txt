@@ -1,0 +1,383 @@
+# 🚀 UMKM Time Series Forecasting App - Setup Guide
+
+Complete production-ready application with FastAPI backend and modern web frontend.
+
+## 📁 Project Structure
+
+```
+umkm-forecasting-app/
+│
+├── backend/
+│   ├── main.py              # FastAPI backend server
+│   └── requirements.txt     # Python dependencies
+│
+├── frontend/
+│   ├── index.html          # Main HTML page
+│   └── app.js              # JavaScript application logic
+│
+├── data/
+│   └── catatan_umkm.csv    # Your dataset (place here)
+│
+└── README.md               # This file
+```
+
+## 🔧 Installation Steps
+
+### Step 1: Install Python Dependencies
+
+```bash
+# Navigate to backend directory
+cd backend
+
+# Create virtual environment (recommended)
+python -m venv venv
+
+# Activate virtual environment
+# On Windows:
+venv\Scripts\activate
+# On macOS/Linux:
+source venv/bin/activate
+
+# Install requirements
+pip install -r requirements.txt
+```
+
+### Step 2: Start Backend Server
+
+```bash
+# Make sure you're in the backend directory
+# Make sure virtual environment is activated
+
+# Start FastAPI server
+python main.py
+
+# Or use uvicorn directly:
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+You should see:
+```
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process
+INFO:     Started server process
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+```
+
+### Step 3: Open Frontend
+
+**Option A: Using Live Server (Recommended)**
+1. Install "Live Server" extension in VS Code
+2. Right-click on `index.html` in frontend folder
+3. Select "Open with Live Server"
+4. Browser will open at `http://localhost:5500` or similar
+
+**Option B: Using Python HTTP Server**
+```bash
+# Navigate to frontend directory
+cd frontend
+
+# Start simple HTTP server
+python -m http.server 3000
+
+# Open browser to http://localhost:3000
+```
+
+**Option C: Direct File Opening**
+- Simply double-click `index.html`
+- May have CORS issues with some browsers
+
+## 🎯 Usage Guide
+
+### 1. Upload Your Dataset
+
+- Click on the upload area or drag & drop your CSV file
+- Required columns:
+  - `date` - Transaction date
+  - `product_name` - Product identifier
+  - `produced` - Units produced
+  - `sold` - Units sold
+  - `price` - Selling price per unit
+  - `unit_cost` - Cost per unit
+  - `revenue` - Total revenue
+  - `expense` - Total expense
+
+### 2. Train Models
+
+- After successful upload, click "Train Models" button
+- Training typically takes 2-5 minutes depending on dataset size
+- System trains 3 models: XGBoost, Random Forest, Gradient Boosting
+- Best model is automatically selected based on validation performance
+
+### 3. View Results
+
+Navigate through 5 sections:
+1. **Upload Data** - Dataset statistics
+2. **Train Models** - Model performance metrics
+3. **View Results** - Detailed accuracy analysis
+4. **Financial Impact** - Profit improvements and waste reduction
+5. **Recommendations** - Actionable business insights
+
+## 🔧 API Endpoints
+
+### Backend API (http://localhost:8000)
+
+#### 1. Upload CSV
+```
+POST /api/upload
+Content-Type: multipart/form-data
+Body: file (CSV file)
+
+Response: {
+  "session_id": "session_20241102120000",
+  "total_records": 11042,
+  "date_range": {...},
+  "products": {...},
+  "sales_stats": {...}
+}
+```
+
+#### 2. Train Models
+```
+POST /api/train/{session_id}
+
+Response: {
+  "session_id": "...",
+  "best_model": "XGBoost",
+  "model_performance": {...},
+  "financial_scenarios": {...},
+  "accuracy_breakdown": {...}
+}
+```
+
+#### 3. Get Product Performance
+```
+GET /api/product-performance/{session_id}
+
+Response: {
+  "products": [
+    {
+      "product": "stuffed_tofu",
+      "days": 150,
+      "avg_actual": 27.5,
+      "avg_predicted": 26.8,
+      "mae": 3.2,
+      "mape": 11.6
+    },
+    ...
+  ]
+}
+```
+
+#### 4. Get Feature Importance
+```
+GET /api/feature-importance/{session_id}
+
+Response: {
+  "features": ["sold_lag1", "sold_ma7", ...],
+  "importance": [0.15, 0.12, ...]
+}
+```
+
+#### 5. Get Time Series Data
+```
+GET /api/time-series/{session_id}/{product_name}
+
+Response: {
+  "dates": ["2025-07-01", "2025-07-02", ...],
+  "actual": [25, 30, ...],
+  "predicted": [24, 29, ...]
+}
+```
+
+## 🐛 Troubleshooting
+
+### CORS Issues
+If you get CORS errors in browser console:
+- Make sure backend is running on port 8000
+- Use Live Server or Python HTTP server for frontend (not direct file opening)
+- Check that `API_URL` in `app.js` matches your backend URL
+
+### Port Already in Use
+```bash
+# Kill process on port 8000
+# On Windows:
+netstat -ano | findstr :8000
+taskkill /PID <PID> /F
+
+# On macOS/Linux:
+lsof -ti:8000 | xargs kill -9
+
+# Or use different port:
+uvicorn main:app --port 8001
+# Update API_URL in app.js to http://localhost:8001
+```
+
+### Module Not Found Errors
+```bash
+# Ensure virtual environment is activated
+# Reinstall requirements
+pip install -r requirements.txt --upgrade
+```
+
+### CSV Upload Fails
+- Check CSV format matches required columns
+- Ensure dates can be parsed (mixed formats supported)
+- File size limit is 100MB by default
+
+## 🚀 Production Deployment
+
+### Docker Deployment
+
+Create `Dockerfile`:
+```dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY backend/ .
+COPY frontend/ /app/static/
+
+EXPOSE 8000
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+Build and run:
+```bash
+docker build -t umkm-forecasting .
+docker run -p 8000:8000 umkm-forecasting
+```
+
+### Cloud Deployment
+
+**Heroku:**
+```bash
+# Install Heroku CLI
+# Login and create app
+heroku create umkm-forecasting
+
+# Add Procfile:
+web: uvicorn main:app --host 0.0.0.0 --port $PORT
+
+# Deploy
+git push heroku main
+```
+
+**AWS/Azure/GCP:**
+- Use container services (ECS, Container Apps, Cloud Run)
+- Or traditional VMs with nginx reverse proxy
+
+## 📊 Performance Optimization
+
+### For Large Datasets (>100k rows)
+
+1. **Reduce Feature Set:**
+```python
+# In main.py, reduce lag features
+for lag in [1, 7, 14]:  # instead of [1, 2, 3, 7, 14, 21, 28]
+    df[f'{target}_lag{lag}'] = series.shift(lag)
+```
+
+2. **Use Smaller Models:**
+```python
+# Reduce n_estimators
+'XGBoost': XGBRegressor(n_estimators=100, ...)  # instead of 200
+```
+
+3. **Add Caching:**
+```python
+from functools import lru_cache
+
+@lru_cache(maxsize=128)
+def expensive_computation():
+    pass
+```
+
+## 🔒 Security Notes
+
+For production:
+1. Add authentication to API endpoints
+2. Implement rate limiting
+3. Validate and sanitize file uploads
+4. Use HTTPS
+5. Add environment variables for sensitive configs
+6. Implement proper session management with expiry
+
+## 📝 Customization
+
+### Add New Models
+
+In `main.py`, add to `models` dict:
+```python
+models = {
+    'Your Model': YourModelClass(params...),
+    ...
+}
+```
+
+### Modify UI Theme
+
+In `index.html` `<style>` section, change colors:
+```css
+/* Primary gradient */
+background: linear-gradient(135deg, #YOUR_COLOR_1 0%, #YOUR_COLOR_2 100%);
+```
+
+### Add New Features
+
+1. Add feature engineering in `add_calendar_features()`
+2. Add to `feature_cols` list
+3. Model will automatically use new features
+
+## 📞 Support
+
+For issues or questions:
+- Check API logs: Backend console will show errors
+- Check browser console: F12 in browser for frontend errors
+- Verify data format matches requirements
+- Ensure all dependencies are installed
+
+## 🎓 Understanding the Output
+
+### Model Metrics Explained
+
+- **MAE (Mean Absolute Error)**: Average prediction error in units
+  - Lower is better
+  - MAE of 5 means predictions are off by ±5 units on average
+
+- **RMSE (Root Mean Squared Error)**: Like MAE but penalizes large errors more
+  - Lower is better
+  - Useful for detecting outlier predictions
+
+- **R² Score**: How well model explains variance (0 to 1)
+  - 0.85 = Model explains 85% of variance (good)
+  - 0.95+ = Excellent
+  - <0.70 = Needs improvement
+
+- **MAPE (Mean Absolute Percentage Error)**: Error as percentage
+  - <10% = Highly accurate
+  - 10-20% = Good
+  - >20% = May need improvement
+
+### Financial Scenarios
+
+- **Baseline**: Current approach (historical average)
+- **ML Prediction**: Using model forecasts
+- **Perfect Foresight**: Theoretical maximum (always produce exact demand)
+
+The gap between ML and Perfect shows room for improvement.
+
+## 🔄 Regular Maintenance
+
+1. **Weekly**: Check prediction accuracy vs actual
+2. **Monthly**: Retrain model with new data
+3. **Quarterly**: Review feature importance and add new features if needed
+4. **Annually**: Complete system audit and optimization
+
+---
+
+**Ready to start?** Follow the installation steps above and upload your first dataset! 🚀
