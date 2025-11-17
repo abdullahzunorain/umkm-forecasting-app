@@ -1,6 +1,9 @@
 
 # UMKM Daily Stock Forecasting System
 
+📦 **Predict optimal stock levels and minimize daily business losses using AI.**
+
+
 
 ## 📁 Dataset Preview
 ![Dataset Preview](upload%20the%20dataset.png)
@@ -19,7 +22,7 @@
 
 
 
-📦 **Predict optimal stock levels and minimize daily business losses using AI.**
+
 
 ---
 
