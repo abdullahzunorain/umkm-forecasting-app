@@ -1,6 +1,36 @@
 
 # UMKM Daily Stock Forecasting System
 
+
+##
+
+### 📁 Dataset Preview
+![Dataset Preview Page](dataset.png)
+
+---
+
+### ⚙️ Training Process
+![Training Process](training_in_process.png)
+
+---
+
+### 📊 Model Training Results
+![Model Training Results](model_training_results.png)
+
+---
+
+### 💰 Financial Impact Analysis
+![Financial Impact](financial_impact.png)
+
+---
+
+### 🎯 Business Recommendations
+![Business Recommendations](business_recommendation.png)
+
+
+
+
+
 📦 **Predict optimal stock levels and minimize daily business losses using AI.**
 
 ---
