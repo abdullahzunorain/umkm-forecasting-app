@@ -4,22 +4,20 @@
 📦 **Predict optimal stock levels and minimize daily business losses using AI.**
 
 
-
 ## 📁 Dataset Preview
-![Dataset Preview](upload%20the%20dataset.png)
+<img src="upload%20the%20dataset.png" alt="Dataset Preview" width="400"/>
 
 ## ⚙️ Training Process
-![Training Process](training%20in%20process.png)
+<img src="training%20in%20process.png" alt="Training Process" width="400"/>
 
 ## 📊 Model Training Results
-![Model Training Results](model%20training%20results.png)
+<img src="model%20training%20results.png" alt="Model Training Results" width="400"/>
 
 ## 💰 Financial Impact Analysis
-![Financial Impact](financial%20impact%20.png)
+<img src="financial%20impact%20.png" alt="Financial Impact" width="400"/>
 
 ## 🎯 Business Recommendations
-![Business Recommendations](Business%20Recomendation.png)
-
+<img src="Business%20Recomendation.png" alt="Business Recommendations" width="400"/>
 
 
 
