@@ -2,32 +2,20 @@
 # UMKM Daily Stock Forecasting System
 
 
-##
+## 📁 Dataset Preview
+![Dataset Preview](upload%20the%20dataset.png)
 
-### 📁 Dataset Preview
-![Dataset Preview Page](dataset.png)
+## ⚙️ Training Process
+![Training Process](training%20in%20process.png)
 
----
+## 📊 Model Training Results
+![Model Training Results](model%20training%20results.png)
 
-### ⚙️ Training Process
-![Training Process](training_in_process.png)
+## 💰 Financial Impact Analysis
+![Financial Impact](financial%20impact%20.png)
 
----
-
-### 📊 Model Training Results
-![Model Training Results](model_training_results.png)
-
----
-
-### 💰 Financial Impact Analysis
-![Financial Impact](financial_impact.png)
-
----
-
-### 🎯 Business Recommendations
-![Business Recommendations](business_recommendation.png)
-
-
+## 🎯 Business Recommendations
+![Business Recommendations](Business%20Recomendation.png)
 
 
 
